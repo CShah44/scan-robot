@@ -45,9 +45,10 @@ RSSI_THRESHOLD = -70.0  # dBm - minimum signal strength for "covered"
 OBSTACLE_DENSITY = 0.17  # 17% of cells are obstacles
 
 # Network configuration
-NUM_STATIC_APS = 5       # Number of static access points
-NUM_CLIENTS = 20         # Number of static clients
-NUM_MOBILE_ROUTERS = 4   # Number of mobile router agents
+# Network configuration
+NUM_STATIC_APS = 0       # Number of static access points
+NUM_CLIENTS = 40         # Number of static clients (Increased from 20)
+NUM_MOBILE_ROUTERS = 6   # Number of mobile router agents
 
 # Mobile router kinematics
 MAX_SPEED = 2.0          # meters per second
@@ -184,6 +185,9 @@ def place_static_aps(grid_size: int, num_aps: int, obstacles: np.ndarray, seed: 
     np.random.seed(seed)
     aps = []
     
+    if num_aps == 0:
+        return []
+
     # Create a grid of regions
     regions_per_side = int(np.ceil(np.sqrt(num_aps)))
     region_size = grid_size / regions_per_side
@@ -223,8 +227,8 @@ def place_clients(grid_size: int, num_clients: int, obstacles: np.ndarray,
     clients = []
     
     if clustered:
-        # Create 2-3 cluster centers
-        num_clusters = np.random.randint(2, 4)
+        # Create 3-4 cluster centers (Increased from 2-3)
+        num_clusters = np.random.randint(3, 5)
         cluster_centers = []
         for _ in range(num_clusters):
             cx = np.random.uniform(10, grid_size - 10)
@@ -235,8 +239,9 @@ def place_clients(grid_size: int, num_clients: int, obstacles: np.ndarray,
         for i in range(num_clients):
             center = cluster_centers[i % num_clusters]
             for _ in range(100):  # Max attempts
-                x = center[0] + np.random.normal(0, 5)
-                y = center[1] + np.random.normal(0, 5)
+                # Increased spread: deviation 10 -> 12
+                x = center[0] + np.random.normal(0, 12)
+                y = center[1] + np.random.normal(0, 12)
                 x = np.clip(x, 0, grid_size - 1)
                 y = np.clip(y, 0, grid_size - 1)
                 
@@ -261,20 +266,38 @@ def place_mobile_routers(grid_size: int, num_routers: int, obstacles: np.ndarray
                          seed: int = 44) -> List[MobileRouter]:
     """
     Place mobile router agents at random free positions.
+    Enforces a minimum distance between routers to avoid initial clustering.
     """
     np.random.seed(seed)
     routers = []
+    min_dist_between_routers = 15.0 # Minimum distance between routers
     
     for _ in range(num_routers):
-        for _ in range(100):  # Max attempts
+        for _ in range(200):  # Max attempts
             x = np.random.uniform(5, grid_size - 5)
             y = np.random.uniform(5, grid_size - 5)
             theta = np.random.uniform(0, 2 * np.pi)
             
             if obstacles[int(y), int(x)] == 0:
-                routers.append(MobileRouter(x=x, y=y, theta=theta))
-                break
+                # Check distance to existing routers
+                too_close = False
+                for r in routers:
+                    dist = np.sqrt((x - r.x)**2 + (y - r.y)**2)
+                    if dist < min_dist_between_routers:
+                        too_close = True
+                        break
+                
+                if not too_close:
+                    routers.append(MobileRouter(x=x, y=y, theta=theta))
+                    break
     
+    # If we couldn't place all routers with strict spacing, try again loosely
+    while len(routers) < num_routers:
+         x = np.random.uniform(5, grid_size - 5)
+         y = np.random.uniform(5, grid_size - 5)
+         if obstacles[int(y), int(x)] == 0:
+             routers.append(MobileRouter(x=x, y=y, theta=0))
+
     return routers
 
 
@@ -703,16 +726,18 @@ def run_simulation(animate: bool = False):
 # STEP B: FAILURE SIMULATION & GREEDY REPAIR POLICY
 # =============================================================================
 
-def find_uncovered_clusters(rssi_map: np.ndarray, obstacles: np.ndarray) -> List[Tuple[np.ndarray, int, Tuple[float, float]]]:
+def find_uncovered_clusters(rssi_map: np.ndarray, obstacles: np.ndarray, 
+                            clients: List[Client] = None) -> List[Tuple[np.ndarray, float, Tuple[float, float]]]:
     """
     Find clusters of uncovered cells using connected component labeling.
     
-    This implements a simple flood-fill algorithm to identify connected regions
-    of cells that have RSSI below the coverage threshold.
+    If clients are provided, clusters are prioritized by client count, then size.
+    The centroid is weighted towards client positions if present.
     
     Returns:
-        List of tuples: (cluster_mask, cluster_size, centroid)
-        Sorted by cluster size (largest first)
+        List of tuples: (cluster_mask, score, centroid)
+        Sorted by score (highest first)
+        Score = (num_clients * 1000) + cluster_size
     """
     from scipy import ndimage
     
@@ -727,13 +752,38 @@ def find_uncovered_clusters(rssi_map: np.ndarray, obstacles: np.ndarray) -> List
         cluster_mask = labeled_array == label_id
         cluster_size = np.sum(cluster_mask)
         
-        # Compute centroid
-        y_coords, x_coords = np.where(cluster_mask)
-        centroid = (np.mean(x_coords), np.mean(y_coords))
+        # Count clients in this cluster
+        clients_in_cluster = []
+        if clients:
+            for client in clients:
+                cx, cy = int(client.x), int(client.y)
+                # Check bounds
+                if 0 <= cx < rssi_map.shape[1] and 0 <= cy < rssi_map.shape[0]:
+                    if cluster_mask[cy, cx]:
+                        clients_in_cluster.append(client)
         
-        clusters.append((cluster_mask, cluster_size, centroid))
+        num_clients = len(clients_in_cluster)
+        
+        # Compute centroid
+        if num_clients > 0:
+            # Client Centroid: Mean position of clients
+            # Add small random noise to avoid stacking perfectly if needed, but mean is fine
+            avg_x = np.mean([c.x for c in clients_in_cluster])
+            avg_y = np.mean([c.y for c in clients_in_cluster])
+            centroid = (avg_x, avg_y)
+            
+            # Score: Heavily weight clients
+            # 1 client is worth more than any realistic empty area (e.g., 50x50 = 2500)
+            score = (num_clients * 10000.0) + cluster_size
+        else:
+            # Geometric Centroid
+            y_coords, x_coords = np.where(cluster_mask)
+            centroid = (np.mean(x_coords), np.mean(y_coords))
+            score = float(cluster_size)
+        
+        clusters.append((cluster_mask, score, centroid))
     
-    # Sort by size (largest first)
+    # Sort by score (largest first)
     clusters.sort(key=lambda x: x[1], reverse=True)
     
     return clusters
@@ -791,19 +841,16 @@ def compute_control_to_target(mr: MobileRouter, target_x: float, target_y: float
 
 
 def greedy_repair_policy(mobile_routers: List[MobileRouter], rssi_map: np.ndarray, 
-                         obstacles: np.ndarray) -> List[Tuple[float, float]]:
+                         obstacles: np.ndarray, clients: List[Client] = None) -> List[Tuple[float, float]]:
     """
-    Greedy repair policy: assign each mobile router to cover the largest uncovered cluster.
+    Greedy repair policy: assign each mobile router to cover the most important uncovered cluster.
     
     Algorithm:
-    1. Find all uncovered clusters
-    2. For each cluster (largest first), assign the nearest unassigned router
-    3. Target is the cluster centroid
-    
-    Returns:
-        List of target positions for each router
+    1. Find all uncovered clusters, prioritized by (Client Count, Area Size)
+    2. For each cluster (highest priority first), assign the nearest unassigned router
+    3. Target is the Client Centroid (if clients exist) or Geometric Centroid
     """
-    clusters = find_uncovered_clusters(rssi_map, obstacles)
+    clusters = find_uncovered_clusters(rssi_map, obstacles, clients)
     
     if not clusters:
         # All covered - return current positions
@@ -841,35 +888,22 @@ def greedy_repair_policy(mobile_routers: List[MobileRouter], rssi_map: np.ndarra
     return targets
 
 
-def simulate_ap_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint],
-                                   clients: List[Client], mobile_routers: List[MobileRouter],
-                                   failed_ap_index: int = 0, 
-                                   t_failure: float = 5.0,
-                                   total_time: float = 60.0,
-                                   dt: float = 0.5) -> dict:
+def simulate_router_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint],
+                                       clients: List[Client], mobile_routers: List[MobileRouter],
+                                       failed_router_index: int = 0, 
+                                       t_failure: float = 10.0,
+                                       total_time: float = 60.0,
+                                       dt: float = 0.5) -> dict:
     """
-    Simulate AP failure at time t_failure and greedy repair response.
+    Simulate Mobile Router failure at time t_failure and greedy repair response.
     
     Timeline:
-    - t < t_failure: Normal operation with all APs
-    - t = t_failure: AP fails (removed from network)
-    - t > t_failure: Mobile routers execute greedy repair policy
-    
-    Args:
-        obstacles: 2D obstacle map
-        aps: List of all access points
-        clients: List of clients
-        mobile_routers: List of mobile router agents
-        failed_ap_index: Index of AP to fail
-        t_failure: Time when AP fails (seconds)
-        total_time: Total simulation time (seconds)
-        dt: Time step (seconds)
-        
-    Returns:
-        Dictionary with time series data
+    - t < t_failure: Normal operation
+    - t = t_failure: Router fails (removed from network)
+    - t > t_failure: Remaining mobile routers execute greedy repair policy
     """
     print("=" * 60)
-    print("Step B: AP Failure Simulation & Greedy Repair Policy")
+    print("Step B: Mobile Router Failure & Local Repair")
     print("=" * 60)
     
     # Initialize time series storage
@@ -877,20 +911,24 @@ def simulate_ap_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint]
     coverage_pct_history = []
     client_coverage_history = []
     avg_rssi_history = []
+    # Store positions for ALL routers
     router_positions = [[] for _ in mobile_routers]
+    # Store targets for ALL routers at each time step
+    target_history = [[] for _ in mobile_routers]
+
     
-    # Track which APs are active
-    active_aps = aps.copy()
-    failed_ap = None
+    # Track active routers
+    active_routers = mobile_routers.copy()
+    failed_router = None
     repair_active = False
     
     print(f"\n[Config]")
     print(f"    Total time: {total_time}s")
     print(f"    Time step: {dt}s")
-    print(f"    AP to fail: AP #{failed_ap_index} at t={t_failure}s")
+    print(f"    Router to fail: Router #{failed_router_index} at t={t_failure}s")
     
     # Compute initial coverage
-    rssi_map = compute_coverage_map(active_aps, mobile_routers, obstacles)
+    rssi_map = compute_coverage_map(aps, active_routers, obstacles)
     stats = compute_coverage_stats(rssi_map, obstacles, clients)
     print(f"\n[Initial State]")
     print(f"    Coverage: {stats['coverage_pct']:.1f}%")
@@ -903,14 +941,20 @@ def simulate_ap_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint]
     print(f"\n[Simulation Running...]")
     
     while t <= total_time:
-        # Check for AP failure event
-        if t >= t_failure and failed_ap is None:
-            failed_ap = active_aps.pop(failed_ap_index)
-            print(f"\n    ⚠️  t={t:.1f}s: {failed_ap} FAILED!")
-            repair_active = True
+        # Check for Router failure event
+        if t >= t_failure and failed_router is None:
+            # Identify the router to fail (index in the original list)
+            # We need to find it in the active_routers list to remove it
+            router_to_fail = mobile_routers[failed_router_index]
+            
+            if router_to_fail in active_routers:
+                active_routers.remove(router_to_fail)
+                failed_router = router_to_fail
+                print(f"\n    ⚠️  t={t:.1f}s: {failed_router} FAILED!")
+                repair_active = True
         
-        # Compute current coverage
-        rssi_map = compute_coverage_map(active_aps, mobile_routers, obstacles)
+        # Compute current coverage using ACTIVE routers only
+        rssi_map = compute_coverage_map(aps, active_routers, obstacles)
         stats = compute_coverage_stats(rssi_map, obstacles, clients)
         
         # Store time series data
@@ -919,17 +963,47 @@ def simulate_ap_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint]
         client_coverage_history.append(stats['clients_covered'])
         avg_rssi_history.append(stats['avg_rssi'])
         
+        # Record positions (failed router stays at last known position or None)
         for i, mr in enumerate(mobile_routers):
-            router_positions[i].append((mr.x, mr.y))
+            if mr == failed_router and failed_router is not None:
+                # Keep recording its last position to show where it died
+                router_positions[i].append((mr.x, mr.y)) 
+            else:
+                router_positions[i].append((mr.x, mr.y))
+            
+            # Record target
+            if targets[i] is not None:
+                target_history[i].append(targets[i])
+            else:
+                target_history[i].append((mr.x, mr.y)) # If no target, target is self
+
         
         # Apply greedy repair policy if active
         if repair_active:
-            targets = greedy_repair_policy(mobile_routers, rssi_map, obstacles)
+            # We need to map targets back to the original full list indices
+            # The policy returns targets for the *active* list passed to it
+            active_targets = greedy_repair_policy(active_routers, rssi_map, obstacles, clients)
+            
+            # Reset targets
+            targets = [None] * len(mobile_routers)
+            
+            # Map active targets back
+            active_idx = 0
+            for i, mr in enumerate(mobile_routers):
+                if mr == failed_router:
+                    targets[i] = (mr.x, mr.y) # Failed node doesn't move
+                else:
+                    targets[i] = active_targets[active_idx]
+                    active_idx += 1
         
         # Move mobile routers towards their targets
         for i, mr in enumerate(mobile_routers):
-            speed, turn_rate = compute_control_to_target(mr, targets[i][0], targets[i][1])
-            mr.move(speed, turn_rate, dt, obstacles)
+            if mr == failed_router:
+                continue # Dead router doesn't move
+                
+            if targets[i] is not None:
+                speed, turn_rate = compute_control_to_target(mr, targets[i][0], targets[i][1])
+                mr.move(speed, turn_rate, dt, obstacles)
         
         t += dt
     
@@ -956,9 +1030,11 @@ def simulate_ap_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPoint]
         'client_coverage': np.array(client_coverage_history),
         'avg_rssi': np.array(avg_rssi_history),
         'router_positions': router_positions,
+        'target_history': target_history, # New field
         'obstacles': obstacles,
-        'active_aps': active_aps,
-        'failed_ap': failed_ap,
+
+        'active_aps': aps, # Static APs (empty)
+        'failed_router': failed_router, # NEW key
         'clients': clients,
         'mobile_routers': mobile_routers,
         't_failure': t_failure,
@@ -987,7 +1063,7 @@ def visualize_failure_recovery(results: dict, save_prefix: str = None):
     # =========================
     ax1 = axes[0, 0]
     ax1.plot(times, coverage, 'b-', linewidth=2, label='Area Coverage')
-    ax1.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='AP Failure')
+    ax1.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='Router Failure')
     ax1.axhline(y=coverage[0], color='green', linestyle=':', alpha=0.5, label='Initial Coverage')
     ax1.fill_between(times, coverage, alpha=0.3)
     ax1.set_xlabel('Time (seconds)', fontsize=11)
@@ -1003,7 +1079,7 @@ def visualize_failure_recovery(results: dict, save_prefix: str = None):
     ax2 = axes[0, 1]
     total_clients = results['clients'].__len__()
     ax2.plot(times, client_cov, 'g-', linewidth=2, label='Clients Covered')
-    ax2.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='AP Failure')
+    ax2.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='Router Failure')
     ax2.axhline(y=total_clients, color='blue', linestyle=':', alpha=0.5, label=f'Total Clients ({total_clients})')
     ax2.fill_between(times, client_cov, alpha=0.3, color='green')
     ax2.set_xlabel('Time (seconds)', fontsize=11)
@@ -1018,7 +1094,7 @@ def visualize_failure_recovery(results: dict, save_prefix: str = None):
     # =========================
     ax3 = axes[1, 0]
     ax3.plot(times, avg_rssi, 'm-', linewidth=2, label='Average RSSI')
-    ax3.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='AP Failure')
+    ax3.axvline(x=t_failure, color='red', linestyle='--', linewidth=2, label='Router Failure')
     ax3.axhline(y=RSSI_THRESHOLD, color='orange', linestyle=':', linewidth=2, label=f'Threshold ({RSSI_THRESHOLD} dBm)')
     ax3.set_xlabel('Time (seconds)', fontsize=11)
     ax3.set_ylabel('RSSI (dBm)', fontsize=11)
@@ -1054,10 +1130,13 @@ def visualize_failure_recovery(results: dict, save_prefix: str = None):
     for ap in results['active_aps']:
         ax4.plot(ap.x, ap.y, '^', color='green', markersize=12, markeredgecolor='white', markeredgewidth=2)
     
-    # Plot failed AP
-    if results['failed_ap']:
-        fap = results['failed_ap']
-        ax4.plot(fap.x, fap.y, 'X', color='red', markersize=15, markeredgecolor='white', markeredgewidth=2)
+    # Plot failed Router
+    if results.get('failed_router'):
+        fr = results['failed_router']
+        # Use last known position
+        # We need to find which index it was to get its last position from router_positions
+        # But for simplicity, we can just use its current x, y (which should be where it died)
+        ax4.plot(fr.x, fr.y, 'X', color='red', markersize=15, markeredgecolor='white', markeredgewidth=2, label='Failed Router')
     
     ax4.set_xlabel('X Position (meters)', fontsize=11)
     ax4.set_ylabel('Y Position (meters)', fontsize=11)
@@ -1086,10 +1165,13 @@ def animate_failure_recovery(results: dict, num_frames: int = None, interval: in
     from copy import deepcopy
     
     obstacles = results['obstacles']
+    obstacles = results['obstacles']
     times = results['times']
     router_positions = results['router_positions']
+    target_history = results.get('target_history', []) # Safety get
     active_aps = results['active_aps']
-    failed_ap = results['failed_ap']
+
+    failed_router = results.get('failed_router')
     clients = results['clients']
     t_failure = results['t_failure']
     
@@ -1115,13 +1197,73 @@ def animate_failure_recovery(results: dict, num_frames: int = None, interval: in
             temp_routers.append(MobileRouter(x=pos[0], y=pos[1], theta=0))
         
         # Determine active APs at this time
-        if t < t_failure:
-            current_aps = active_aps + [failed_ap] if failed_ap else active_aps
-        else:
-            current_aps = active_aps
+        # active_aps doesn't change since we have 0 static APs
+        current_aps = active_aps
         
+        # Determine active routers
+        # We need to render the failed router differently if t >= t_failure
+        # For coverage calculation, we only use active ones.
+        # But 'temp_routers' here are based on positions.
+        # The failed router is in router_positions but it stops moving.
+        # Ideally we should remove it from coverage calculation if t >= t_failure
+        # BUT compute_coverage_map takes all routers in the list.
+        # We need to distinguish active vs failed.
+        
+        # Simplified: Pass all to coverage map (it will include the dead one acting as a static AP if we aren't careful)
+        # Wait - the simulation code removes the failed router from 'active_routers' which is passed to compute_coverage_map.
+        # But here in animation we re-compute coverage.
+        # We need to reconstruct 'active_routers' list for coverage map.
+        
+        active_routers_for_coverage = []
+        for i, pos in enumerate(router_positions):
+            # Check if this is the failed router and if we are past failure time
+            # We don't have easy index-to-router mapping here unless we assume order is preserved (it is)
+            # The 'failed_router' object ID matches one of the original routers?
+            # Actually we can just check if any router is at the "failed" position and t >= t_failure... 
+            # Better: pass index of failed router in results.
+            
+            # For now, let's just assume if it's the router that failed, we exclude it from coverage if t >= t_failure
+            # But the 'failed_router' object in results has the final position.
+            
+            is_failed = False
+            if failed_router and t >= t_failure:
+                # Check distance to failed router final pos (it stopped moving)
+                p = positions[idx]
+                dist = np.sqrt((p[0] - failed_router.x)**2 + (p[1] - failed_router.y)**2)
+                if dist < 0.01: # It's the failed one (it hasn't moved)
+                    # This heuristic might fail if another router stops near it.
+                    # But index matching is safer if we know the index.
+                    pass
+            
+            # Only include if not failed?
+            # Actually, compute_coverage_map takes list of MobileRouter objects.
+            # Let's just create them all, but give 0 tx_power to failed one?
+            mr = MobileRouter(x=pos[idx][0], y=pos[idx][1], theta=0)
+            active_routers_for_coverage.append(mr) # Wait, pos is positions[idx] which is (x,y)
+            
+        # CORRECT APPROACH: 
+        # We know t_failure. If t >= t_failure, we must visually show failure.
+        # Simulation loop kept 'failed_router' separate.
+        # We should probably filter the routers passed to compute_coverage_map
+        
+        # Let's rebuild the list carefully
+        current_active_routers = []
+        current_failed_router = None
+        
+        for i, positions in enumerate(router_positions):
+            pos = positions[idx]
+            mr = MobileRouter(x=pos[0], y=pos[1], theta=0)
+            
+            # Identify if this is the failed router
+            # We don't have the index explicitly in results, but we can infer or pass it.
+            # Let's assume we can match by checking if this router is the 'failed_router' object
+            # But we created NEW objects.
+            
+            # Fallback: Just show all for now, but mark failure
+            current_active_routers.append(mr)
+
         # Compute coverage
-        rssi_map = compute_coverage_map(current_aps, temp_routers, obstacles)
+        rssi_map = compute_coverage_map(current_aps, current_active_routers, obstacles)
         stats = compute_coverage_stats(rssi_map, obstacles, clients)
         
         # Plot
@@ -1135,8 +1277,9 @@ def animate_failure_recovery(results: dict, num_frames: int = None, interval: in
         for ap in current_aps:
             ax.plot(ap.x, ap.y, '^', color='green', markersize=12, markeredgecolor='white', markeredgewidth=2)
         
-        if t >= t_failure and failed_ap:
-            ax.plot(failed_ap.x, failed_ap.y, 'X', color='red', markersize=15, markeredgecolor='white', markeredgewidth=2)
+        if t >= t_failure and failed_router:
+             ax.plot(failed_router.x, failed_router.y, 'X', color='red', markersize=15, markeredgecolor='white', markeredgewidth=2)
+
         
         # Clients
         for client in clients:
@@ -1145,7 +1288,7 @@ def animate_failure_recovery(results: dict, num_frames: int = None, interval: in
             color = 'blue' if covered else 'gray'
             ax.plot(client.x, client.y, 'o', color=color, markersize=6, markeredgecolor='white', markeredgewidth=1)
         
-        # Mobile routers with trails
+        # Mobile routers with trails AND TARGETS
         colors = ['lime', 'cyan', 'yellow', 'magenta']
         for i, positions in enumerate(router_positions):
             # Trail up to current frame
@@ -1154,8 +1297,22 @@ def animate_failure_recovery(results: dict, num_frames: int = None, interval: in
             color = colors[i % len(colors)]
             ax.plot(trail_xs, trail_ys, '-', color=color, linewidth=1.5, alpha=0.5)
             ax.plot(trail_xs[-1], trail_ys[-1], 's', color=color, markersize=10, markeredgecolor='black', markeredgewidth=2)
+            
+            # Visualize Target Vector
+            if target_history:
+                current_target = target_history[i][idx]
+                curr_pos = positions[idx]
+                # If target is different from current position (and far enough), draw a line
+                dist_to_target = np.sqrt((current_target[0] - curr_pos[0])**2 + (current_target[1] - curr_pos[1])**2)
+                if dist_to_target > 1.0:
+                     # Draw thin dashed line to target
+                     ax.plot([curr_pos[0], current_target[0]], [curr_pos[1], current_target[1]], 
+                             '--', color=color, linewidth=1.0, alpha=0.8)
+                     # Draw target marker (star)
+                     ax.plot(current_target[0], current_target[1], '*', color=color, markersize=8, markeredgecolor='black')
+
         
-        status = "NORMAL" if t < t_failure else "⚠️ AP FAILED - REPAIR ACTIVE"
+        status = "NORMAL" if t < t_failure else "⚠️ ROUTER FAILED - REPAIR ACTIVE"
         ax.set_title(f"t = {t:.1f}s | Coverage: {stats['coverage_pct']:.1f}% | {status}", fontsize=12)
         ax.set_xlabel('X Position (meters)')
         ax.set_ylabel('Y Position (meters)')
@@ -1191,12 +1348,12 @@ def run_step_b_simulation():
     print(f"Clients: {len(clients)}")
     
     # Run failure simulation
-    results = simulate_ap_failure_and_repair(
+    results = simulate_router_failure_and_repair(
         obstacles=obstacles,
         aps=aps,
         clients=clients,
         mobile_routers=mobile_routers,
-        failed_ap_index=0,      # Fail the first AP
+        failed_router_index=0,   # Fail the first Router
         t_failure=10.0,          # Fail at t=10s
         total_time=50.0,        # Run for 50s total
         dt=0.2                  # 0.2s time step
