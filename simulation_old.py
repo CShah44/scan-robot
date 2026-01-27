@@ -921,7 +921,6 @@ def simulate_router_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPo
     active_routers = mobile_routers.copy()
     failed_router = None
     repair_active = False
-    repair_targets_calculated = False
     
     print(f"\n[Config]")
     print(f"    Total time: {total_time}s")
@@ -979,34 +978,23 @@ def simulate_router_failure_and_repair(obstacles: np.ndarray, aps: List[AccessPo
                 target_history[i].append((mr.x, mr.y)) # If no target, target is self
 
         
-        
         # Apply greedy repair policy if active
         if repair_active:
-            # STATIC REASSIGNMENT (Open-Loop): 
-            # Calculate targets ONLY if they haven't been assigned for repair yet
-            # We check if we already have valid repair targets.
-            # However, we need a flag or check.
-            # Let's use a flag 'repair_targets_calculated'
+            # We need to map targets back to the original full list indices
+            # The policy returns targets for the *active* list passed to it
+            active_targets = greedy_repair_policy(active_routers, rssi_map, obstacles, clients)
             
-            if not repair_targets_calculated:
-                print(f"\n    [Logic] Calculating Static Repair Assignments...")
-                # We need to map targets back to the original full list indices
-                # The policy returns targets for the *active* list passed to it
-                active_targets = greedy_repair_policy(active_routers, rssi_map, obstacles, clients)
-                
-                # Reset targets
-                targets = [None] * len(mobile_routers)
-                
-                # Map active targets back
-                active_idx = 0
-                for i, mr in enumerate(mobile_routers):
-                    if mr == failed_router:
-                        targets[i] = (mr.x, mr.y) # Failed node doesn't move
-                    else:
-                        targets[i] = active_targets[active_idx]
-                        active_idx += 1
-                
-                repair_targets_calculated = True
+            # Reset targets
+            targets = [None] * len(mobile_routers)
+            
+            # Map active targets back
+            active_idx = 0
+            for i, mr in enumerate(mobile_routers):
+                if mr == failed_router:
+                    targets[i] = (mr.x, mr.y) # Failed node doesn't move
+                else:
+                    targets[i] = active_targets[active_idx]
+                    active_idx += 1
         
         # Move mobile routers towards their targets
         for i, mr in enumerate(mobile_routers):
