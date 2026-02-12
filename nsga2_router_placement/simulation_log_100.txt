@@ -1,0 +1,78 @@
+=== Simulation Environment Settings ===
+Grid Size: 100 x 100
+Number of Routers: 5
+Number of Clients: 20
+Transmit Power (P_TX): 20.0 dBm
+Path Loss Exponent (Gamma): 3.0
+
+=== Client Coordinates ===
+Client 1: (51.00, 92.00)
+Client 2: (14.00, 71.00)
+Client 3: (60.00, 20.00)
+Client 4: (82.00, 86.00)
+Client 5: (74.00, 74.00)
+Client 6: (87.00, 99.00)
+Client 7: (23.00, 2.00)
+Client 8: (21.00, 52.00)
+Client 9: (1.00, 87.00)
+Client 10: (29.00, 37.00)
+Client 11: (1.00, 63.00)
+Client 12: (59.00, 20.00)
+Client 13: (32.00, 75.00)
+Client 14: (57.00, 21.00)
+Client 15: (88.00, 48.00)
+Client 16: (90.00, 58.00)
+Client 17: (41.00, 91.00)
+Client 18: (59.00, 79.00)
+Client 19: (14.00, 61.00)
+Client 20: (61.00, 46.00)
+
+=== Optimization Results (Pareto Front Selection) ===
+--- Best Coverage Solution ---
+Objectives:
+  Coverage: 100.00%
+  Avg Signal Quality: -60.22 dBm
+  Overlap Area: 8.00 m^2
+Router Coordinates:
+  Router 1: (53.16, 97.93)
+  Router 2: (58.40, 19.17)
+  Router 3: (23.26, 74.32)
+  Router 4: (79.95, 53.04)
+  Router 5: (54.85, 41.18)
+
+--- Best Signal Quality Solution ---
+Objectives:
+  Coverage: 95.00%
+  Avg Signal Quality: -48.10 dBm
+  Overlap Area: 2372.00 m^2
+Router Coordinates:
+  Router 1: (13.97, 61.09)
+  Router 2: (59.13, 20.09)
+  Router 3: (73.74, 74.46)
+  Router 4: (0.98, 87.08)
+  Router 5: (67.85, 81.66)
+
+--- Minimum Overlap Solution ---
+Objectives:
+  Coverage: 100.00%
+  Avg Signal Quality: -60.22 dBm
+  Overlap Area: 8.00 m^2
+Router Coordinates:
+  Router 1: (53.16, 97.93)
+  Router 2: (58.40, 19.17)
+  Router 3: (23.26, 74.32)
+  Router 4: (79.95, 53.04)
+  Router 5: (54.85, 41.18)
+
+--- Balanced Trade-off Solution ---
+Objectives:
+  Coverage: 95.00%
+  Avg Signal Quality: -56.45 dBm
+  Overlap Area: 228.00 m^2
+Router Coordinates:
+  Router 1: (92.52, 46.64)
+  Router 2: (33.88, 93.60)
+  Router 3: (56.83, 76.15)
+  Router 4: (21.41, 51.89)
+  Router 5: (57.06, 20.73)
+

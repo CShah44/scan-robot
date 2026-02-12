@@ -85,6 +85,9 @@ def main():
         rank0_pop.sort(key=lambda x: x.objectives[0])
         idx_bal = len(rank0_pop) // 2
         plot_layout(rank0_pop[idx_bal], "Balanced Trade-off", "layout_balanced.png")
+        
+        # 4. Log Results to Text File
+        log_results('nsga2_router_placement/simulation_log.txt', solver, final_pop)
 
 def plot_layout(individual, title_prefix, filename):
     routers = individual.routes
@@ -158,6 +161,76 @@ def plot_layout(individual, title_prefix, filename):
     plt.title(f'{title_prefix}\nCov: {cov:.1f}%, RSSI: {rssi:.1f} dBm, Overlap: {over:.0f} m^2')
     plt.savefig(f'nsga2_router_placement/{filename}')
     print(f"Saved {filename}")
+
+def log_results(filename, solver, final_pop):
+    """
+    Logs simulation environment details and optimization results to a text file.
+    """
+    with open(filename, 'w') as f:
+        # --- Environment Settings ---
+        f.write("=== Simulation Environment Settings ===\n")
+        f.write(f"Grid Size: {GRID_SIZE} x {GRID_SIZE}\n")
+        f.write(f"Number of Routers: {N_ROUTERS}\n")
+        f.write(f"Number of Clients: {N_CLIENTS}\n")
+        f.write(f"Transmit Power (P_TX): {P_TX} dBm\n")
+        f.write(f"Path Loss Exponent (Gamma): {GAMMA}\n\n")
+
+        # --- Client Coordinates ---
+        f.write("=== Client Coordinates ===\n")
+        for i, client in enumerate(solver.env.clients):
+            f.write(f"Client {i+1}: ({client[0]:.2f}, {client[1]:.2f})\n")
+        f.write("\n")
+
+        # --- Optimization Results ---
+        f.write("=== Optimization Results (Pareto Front Selection) ===\n")
+        
+        rank0_pop = [ind for ind in final_pop if ind.rank == 0]
+        if not rank0_pop:
+            f.write("No solutions found in rank 0.\n")
+            return
+
+        # Helper to find index (same as in main)
+        def get_best_idx(objective_idx, minimize=True, population=rank0_pop):
+            vals = [ind.objectives[objective_idx] for ind in population]
+            return np.argmin(vals) if minimize else np.argmax(vals)
+
+        # Define key solutions to log
+        solutions_to_log = []
+        
+        # A. Best Coverage
+        idx_cov = get_best_idx(0, minimize=True)
+        solutions_to_log.append(("Best Coverage Solution", rank0_pop[idx_cov]))
+        
+        # B. Best Signal Quality
+        idx_qual = get_best_idx(1, minimize=True)
+        solutions_to_log.append(("Best Signal Quality Solution", rank0_pop[idx_qual]))
+        
+        # C. Minimum Overlap
+        idx_over = get_best_idx(2, minimize=True)
+        solutions_to_log.append(("Minimum Overlap Solution", rank0_pop[idx_over]))
+        
+        # D. Balanced Solution
+        sorted_pop = sorted(rank0_pop, key=lambda x: x.objectives[0])
+        idx_bal = len(sorted_pop) // 2
+        solutions_to_log.append(("Balanced Trade-off Solution", sorted_pop[idx_bal]))
+
+        for label, ind in solutions_to_log:
+            f.write(f"--- {label} ---\n")
+            # Invert objectives mostly for display (Coverage was negated, Quality was negated)
+            cov_perc = -ind.objectives[0] * 100
+            rssi_dbm = -ind.objectives[1]
+            overlap_area = ind.objectives[2]
+            
+            f.write(f"Objectives:\n")
+            f.write(f"  Coverage: {cov_perc:.2f}%\n")
+            f.write(f"  Avg Signal Quality: {rssi_dbm:.2f} dBm\n")
+            f.write(f"  Overlap Area: {overlap_area:.2f} m^2\n")
+            f.write(f"Router Coordinates:\n")
+            for r_idx, router in enumerate(ind.routes):
+                f.write(f"  Router {r_idx+1}: ({router[0]:.2f}, {router[1]:.2f})\n")
+            f.write("\n")
+            
+    print(f"Simulation details logged to {filename}")
 
 if __name__ == "__main__":
     main()
