@@ -31,44 +31,44 @@ Client 20: (61.00, 46.00)
 --- Best Coverage Solution ---
 Objectives:
   Coverage: 100.00%
-  Avg Signal Quality: -59.76 dBm
-  Overlap Area: 160.00 m^2
+  Avg Signal Quality: -60.70 dBm
+  Overlap Area: 40.00 m^2
 Router Coordinates:
-  Router 1: (0.29, 63.23)
-  Router 2: (59.84, 75.08)
-  Router 3: (53.92, 22.38)
-  Router 4: (83.86, 92.00)
+  Router 1: (0.48, 63.39)
+  Router 2: (59.49, 78.79)
+  Router 3: (43.19, 21.56)
+  Router 4: (82.94, 77.47)
 
 --- Best Signal Quality Solution ---
 Objectives:
   Coverage: 90.00%
-  Avg Signal Quality: -53.18 dBm
-  Overlap Area: 756.00 m^2
+  Avg Signal Quality: -48.33 dBm
+  Overlap Area: 828.00 m^2
 Router Coordinates:
-  Router 1: (57.59, 84.79)
-  Router 2: (59.02, 20.10)
-  Router 3: (74.81, 74.60)
-  Router 4: (14.52, 61.61)
+  Router 1: (60.05, 81.73)
+  Router 2: (74.00, 73.98)
+  Router 3: (13.96, 70.73)
+  Router 4: (59.00, 20.01)
 
 --- Minimum Overlap Solution ---
 Objectives:
   Coverage: 95.00%
-  Avg Signal Quality: -59.15 dBm
+  Avg Signal Quality: -54.19 dBm
   Overlap Area: 0.00 m^2
 Router Coordinates:
-  Router 1: (41.92, 88.04)
-  Router 2: (56.73, 19.40)
-  Router 3: (73.73, 74.34)
-  Router 4: (24.34, 39.98)
+  Router 1: (40.99, 91.14)
+  Router 2: (59.84, 19.80)
+  Router 3: (74.00, 73.90)
+  Router 4: (22.08, 46.54)
 
 --- Balanced Trade-off Solution ---
 Objectives:
-  Coverage: 95.00%
-  Avg Signal Quality: -56.62 dBm
-  Overlap Area: 192.00 m^2
+  Coverage: 100.00%
+  Avg Signal Quality: -53.69 dBm
+  Overlap Area: 532.00 m^2
 Router Coordinates:
-  Router 1: (3.29, 66.45)
-  Router 2: (61.54, 75.44)
-  Router 3: (59.81, 20.39)
-  Router 4: (87.46, 99.21)
+  Router 1: (52.78, 88.23)
+  Router 2: (73.97, 74.01)
+  Router 3: (13.51, 56.82)
+  Router 4: (56.37, 21.22)
 
