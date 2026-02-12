@@ -19,7 +19,7 @@ MIN_RSSI_OVERLAP = -70.0   # dBm
 
 # NSGA-II Settings
 POPULATION_SIZE = 50
-GENERATIONS = 3000
+GENERATIONS = 100
 MUTATION_RATE = 0.1
 ETA_C = 20  # Crossover distribution index
 ETA_M = 20  # Mutation distribution index

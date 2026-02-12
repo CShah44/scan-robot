@@ -111,10 +111,17 @@ def plot_layout(individual, title_prefix, filename):
     max_rssi = np.max(all_rssi, axis=0)
     rssi_map = max_rssi.reshape(grid_x.shape)
     
-    # Plot Heatmap
+    # Plot Heatmap (Filled Contours)
     # vmin/vmax tailored to typical WiFi ranges (-90 to -30)
-    im = ax.imshow(rssi_map, extent=[0, GRID_SIZE, 0, GRID_SIZE], origin='lower', cmap='RdYlGn', alpha=0.6, vmin=-90, vmax=-40)
+    levels = np.arange(-90, -30, 10) 
+    
+    # Use contourf for filled regions
+    im = ax.contourf(rssi_map, levels=levels, extent=[0, GRID_SIZE, 0, GRID_SIZE], origin='lower', cmap='RdYlGn', alpha=0.6, extend='both')
     plt.colorbar(im, label='Signal Strength (dBm)')
+    
+    # Add Contour Lines (boundaries)
+    contours = ax.contour(rssi_map, levels=levels, extent=[0, GRID_SIZE, 0, GRID_SIZE], origin='lower', colors='black', linewidths=0.8, alpha=0.5)
+    ax.clabel(contours, inline=True, fontsize=8, fmt='%1.0f')
     # ---------------
 
     # Obstacles
